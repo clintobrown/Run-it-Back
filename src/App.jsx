@@ -420,7 +420,6 @@ export default function PokerLogger(){
   function selectHoleCard(pos, slot, card){
     upd(n=>{
       n.hands[pos][slot]=card;
-      maybePostBlinds(n);
       calcEq(n,derivedActive(n.hands));
     });
   }
@@ -617,7 +616,12 @@ export default function PokerLogger(){
       {active.includes('UTG')&&S.street===0&&(
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,padding:'10px 14px',background:'#120d1e',borderRadius:8,border:`1px solid ${straddle?'#39ff14':'#3b0764'}`}}>
           <span style={{fontSize:13,color:'#e9d5ff',fontWeight:600,flex:1}}>UTG Straddle <span style={{color:'#6b21a8',fontSize:11}}>(4bb — acts last)</span></span>
-          <div onClick={()=>{const ns=!straddle;setStraddle(ns);upd(n=>{n.straddle=ns;if(n.blindsPosted){n.blindsPosted=false;n.pot=0;n.contributed={};ALL_POS.forEach(p=>n.contributed[p]=0);n.streetRounds.preflop=[[]];const active2=derivedActive(n.hands);if(active2.includes('SB')&&active2.includes('BB'))maybePostBlinds(n);}});}} style={{width:48,height:26,borderRadius:13,background:straddle?'#39ff14':'#3b0764',cursor:'pointer',display:'flex',alignItems:'center',padding:'0 3px',transition:'background 0.2s',WebkitTapHighlightColor:'transparent',flexShrink:0}}>
+          <div onClick={()=>{const ns=!straddle;setStraddle(ns);upd(n=>{n.straddle=ns;// Reset blinds with or without straddle
+            n.pot=0;n.contributed={};ALL_POS.forEach(p=>n.contributed[p]=0);n.streetRounds.preflop=[[]];
+            n.stacks['SB']=99;n.contributed['SB']=1;n.pot+=1;n.streetRounds.preflop[0].push({pos:'SB',action:'blind',amount:1});
+            n.stacks['BB']=98;n.contributed['BB']=2;n.pot+=2;n.streetRounds.preflop[0].push({pos:'BB',action:'blind',amount:2});
+            if(ns){n.stacks['UTG']=96;n.contributed['UTG']=4;n.pot+=4;n.streetRounds.preflop[0].push({pos:'UTG',action:'straddle',amount:4});}
+            n.blindsPosted=true;});}} style={{width:48,height:26,borderRadius:13,background:straddle?'#39ff14':'#3b0764',cursor:'pointer',display:'flex',alignItems:'center',padding:'0 3px',transition:'background 0.2s',WebkitTapHighlightColor:'transparent',flexShrink:0}}>
             <div style={{width:20,height:20,borderRadius:10,background:'#fff',transform:straddle?'translateX(22px)':'translateX(0)',transition:'transform 0.2s'}}/>
           </div>
         </div>
