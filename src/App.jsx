@@ -159,7 +159,7 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
 
   return(
     <div onClick={handleClose} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,background:'#0a0010',display:'flex',flexDirection:'column',padding:'8px 4px',boxSizing:'border-box'}}>
-      <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',flex:1,height:'100%'}}>
+      <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',flex:1,height:'100%',padding:'0 4px'}}>
 
         {/* Header */}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6,padding:'0 4px'}}>
@@ -198,31 +198,37 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
           {!current[0]?'SELECT CARD 1':!current[1]?'SELECT CARD 2':'TAP TO CHANGE'}
         </div>
 
-        {/* Card table: fills remaining space */}
-        <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
-        {SUIT_ROWS.map(({suit,sym,bg})=>(
-          <div key={suit} style={{display:'flex',gap:2,marginBottom:2,alignItems:'stretch',flex:1}}>
-            <div style={{width:28,textAlign:'center',fontSize:24,color:bg,flexShrink:0,fontWeight:700,alignSelf:'center'}}>{sym}</div>
-            {RANKS.map(rank=>{
-              const key=rank+suit;
-              const isUsed=used.has(key);
-              const isC1=current[0]?.rank===rank&&current[0]?.suit===suit;
-              const isC2=current[1]?.rank===rank&&current[1]?.suit===suit;
-              return(
-                <button key={rank} onClick={()=>!isUsed&&handleCard(rank,suit)} style={{
-                  width:0,flexGrow:1,height:52,borderRadius:6,
-                  background:isC1?'#39ff14':isC2?'#22d3ee':isUsed?'#0d0a18':bg,
-                  color:isC1||isC2?'#000':isUsed?'#2d1b69':'#fff',
-                  fontSize:18,fontWeight:800,border:`1px solid rgba(255,255,255,${isUsed?0.05:0.2})`,
-                  cursor:isUsed&&!isC1&&!isC2?'not-allowed':'pointer',
-                  opacity:isUsed&&!isC1&&!isC2?0.2:1,
-                  fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0,
-                  display:'flex',alignItems:'center',justifyContent:'center',
-                }}>{rank}</button>
-              );
-            })}
-          </div>
-        ))}
+        {/* Card table: scrollable */}
+        <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',justifyContent:'space-evenly'}}>
+        {SUIT_ROWS.map(({suit,sym,bg})=>{
+          const CardBtn=({rank})=>{
+            const key=rank+suit;
+            const isUsed=used.has(key);
+            const isC1=current[0]?.rank===rank&&current[0]?.suit===suit;
+            const isC2=current[1]?.rank===rank&&current[1]?.suit===suit;
+            return(
+              <button onClick={()=>!isUsed&&handleCard(rank,suit)} style={{
+                width:0,flexGrow:1,height:52,borderRadius:10,
+                background:isC1?'#39ff14':isC2?'#22d3ee':isUsed?'#1a0a2e':bg,
+                border:'none',
+                cursor:isUsed&&!isC1&&!isC2?'not-allowed':'pointer',
+                opacity:isUsed&&!isC1&&!isC2?0.2:1,
+                fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0,
+                display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:22,fontWeight:900,
+                color:isC1||isC2?'#000':'#fff',
+              }}>{rank}</button>
+            );
+          };
+          return(
+            <div key={suit} style={{marginBottom:6}}>
+              <div style={{display:'flex',gap:3,alignItems:'center'}}>
+                <div style={{width:30,textAlign:'center',fontSize:24,color:bg,flexShrink:0,fontWeight:700}}>{sym}</div>
+                {RANKS.map(rank=><CardBtn key={rank} rank={rank}/>)}
+              </div>
+            </div>
+          );
+        })}
 
         </div>
 
@@ -773,13 +779,13 @@ export default function PokerLogger(){
               // Preflop: blinds set the floor (2bb, or 4bb with straddle)
               // Any raises on top add to that
               const preflopFloor = isPreflop ? (S.straddle ? 4 : 2) : 0;
-              // Get all raise/bet amounts this street
-              const allStreetActs = rounds.flat();
+              // Get all raise/bet amounts this street (exclude blinds)
+              const allStreetActs = rounds.flat().filter(a=>!['blind','straddle'].includes(a.action));
               const raiseAmounts = allStreetActs.filter(a=>a.action==='bet'&&a.amount>0).map(a=>a.amount);
               const maxRaise = raiseAmounts.length ? Math.max(...raiseAmounts) : 0;
               const maxBet = Math.max(preflopFloor, maxRaise);
-              // How much has THIS player already put in (blinds + any calls/raises)
-              const blindsIn = isPreflop ? (S.streetRounds.preflop[0].filter(a=>a.pos===pos&&a.amount>0).reduce((s,a)=>s+a.amount,0)) : 0;
+              // How much has THIS player put in: blinds/straddle + real actions (no double count)
+              const blindsIn = isPreflop ? (S.streetRounds.preflop[0].filter(a=>a.pos===pos&&['blind','straddle'].includes(a.action)).reduce((s,a)=>s+a.amount,0)) : 0;
               const actsIn = allStreetActs.filter(a=>a.pos===pos&&a.amount>0).reduce((s,a)=>s+a.amount,0);
               const myIn = blindsIn + actsIn;
               const facingBet = maxBet > myIn;
