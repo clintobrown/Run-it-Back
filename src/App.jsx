@@ -19,11 +19,18 @@ function saveHistory(h){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(h)
 function mkState(){
   const hands={}, stacks={}, contributed={};
   ALL_POS.forEach(p=>{ hands[p]=[null,null]; stacks[p]=100; contributed[p]=0; });
+  // Pre-post blinds: SB=1bb, BB=2bb, pot=3bb by default
+  stacks['SB']=99; contributed['SB']=1;
+  stacks['BB']=98; contributed['BB']=2;
+  const blindRound=[
+    {pos:'SB',action:'blind',amount:1},
+    {pos:'BB',action:'blind',amount:2},
+  ];
   return {
     hands, folded:new Set(), street:0, community:[],
-    streetRounds:{ preflop:[[]], flop:[[]], turn:[[]], river:[[]] },
-    equities:{}, stacks, pot:0, contributed,
-    betDropOpen:null, notes:'', blindsPosted:false,
+    streetRounds:{ preflop:[blindRound], flop:[[]], turn:[[]], river:[[]] },
+    equities:{}, stacks, pot:3, contributed,
+    betDropOpen:null, notes:'', blindsPosted:true, straddle:false,
   };
 }
 
@@ -64,12 +71,14 @@ function runMC(hands,community,iters=500){
   return wins.map(w=>Math.round((w/tot)*100));
 }
 
-function pendingInRound(rounds,ri,active,folded,isPreflop){
-  const base=(isPreflop?PRE_ORD:POST_ORD).filter(p=>active.includes(p)&&!folded.has(p));
-  const acted=new Set((rounds[ri]||[]).map(a=>a.pos));
-  if(ri===0) return base.filter(p=>!acted.has(p));
+function pendingInRound(rounds,ri,active,folded,isPreflop,customPreflopOrder){
+  const base=(isPreflop?(customPreflopOrder||PRE_ORD):POST_ORD).filter(p=>active.includes(p)&&!folded.has(p));
+  // For ri===0 preflop: blinds/straddle count as "pre-acted" but real actions (fold/call/raise/check) count as fully acted
+  const realActed=new Set((rounds[ri]||[]).filter(a=>!['blind','straddle'].includes(a.action)).map(a=>a.pos));
+  const blindActed=new Set((rounds[ri]||[]).filter(a=>['blind','straddle'].includes(a.action)).map(a=>a.pos));
+  if(ri===0) return base.filter(p=>!realActed.has(p));
   const agg=[...(rounds[ri-1]||[])].reverse().find(a=>a.action==='bet')?.pos;
-  return base.filter(p=>p!==agg&&!acted.has(p));
+  return base.filter(p=>p!==agg&&!realActed.has(p));
 }
 
 function buildRecord(S,active){
@@ -133,6 +142,12 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
     onSelect(pos, slot, {rank:'', suit:'u'});
     if(slot===1 || current[0]) onClose();
   }
+  // When closing, auto-fill any empty slots with unknown
+  function handleClose(){
+    if(!current[0]) onSelect(pos, 0, {rank:'', suit:'u'});
+    if(!current[1]) onSelect(pos, 1, {rank:'', suit:'u'});
+    onClose();
+  }
   function clearCard(s){ onSelect(pos, s, null); }
 
   const SUIT_ROWS = [
@@ -143,17 +158,17 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
   ];
 
   return(
-    <div onClick={onClose} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,background:'rgba(5,0,20,0.97)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:12}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'#0f0a1a',border:'2px solid #6b21a8',borderRadius:16,padding:14,width:'100%',maxWidth:430,boxShadow:'0 0 40px rgba(124,58,237,0.4)'}}>
+    <div onClick={handleClose} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,background:'#0a0010',display:'flex',flexDirection:'column',padding:'8px 4px',boxSizing:'border-box'}}>
+      <div onClick={e=>e.stopPropagation()} style={{display:'flex',flexDirection:'column',flex:1,height:'100%'}}>
 
         {/* Header */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6,padding:'0 4px'}}>
           <div style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:2}}>{pos}</div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#a78bfa',fontSize:22,cursor:'pointer',lineHeight:1}}>✕</button>
+          <button onClick={handleClose} style={{background:'none',border:'none',color:'#a78bfa',fontSize:26,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>✕</button>
         </div>
 
         {/* Card 1 and Card 2 preview */}
-        <div style={{display:'flex',gap:12,justifyContent:'center',marginBottom:10}}>
+        <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:6}}>
           {[0,1].map(s=>{
             const c=current[s];
             const si=SUIT_ROWS.find(x=>x.suit===c?.suit);
@@ -179,14 +194,15 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
         </div>
 
         {/* Prompt */}
-        <div style={{textAlign:'center',fontSize:11,color:'#a3e635',marginBottom:8,fontWeight:600,letterSpacing:1}}>
+        <div style={{textAlign:'center',fontSize:11,color:'#a3e635',marginBottom:4,fontWeight:600,letterSpacing:1}}>
           {!current[0]?'SELECT CARD 1':!current[1]?'SELECT CARD 2':'TAP TO CHANGE'}
         </div>
 
-        {/* Card table: 4 suit rows + 1 unknown row */}
+        {/* Card table: fills remaining space */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
         {SUIT_ROWS.map(({suit,sym,bg})=>(
-          <div key={suit} style={{display:'flex',gap:3,marginBottom:3,alignItems:'center'}}>
-            <div style={{width:22,textAlign:'center',fontSize:17,color:bg,flexShrink:0,fontWeight:700}}>{sym}</div>
+          <div key={suit} style={{display:'flex',gap:2,marginBottom:2,alignItems:'stretch',flex:1}}>
+            <div style={{width:28,textAlign:'center',fontSize:24,color:bg,flexShrink:0,fontWeight:700,alignSelf:'center'}}>{sym}</div>
             {RANKS.map(rank=>{
               const key=rank+suit;
               const isUsed=used.has(key);
@@ -194,30 +210,20 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
               const isC2=current[1]?.rank===rank&&current[1]?.suit===suit;
               return(
                 <button key={rank} onClick={()=>!isUsed&&handleCard(rank,suit)} style={{
-                  width:0,flexGrow:1,height:38,borderRadius:5,
+                  width:0,flexGrow:1,height:52,borderRadius:6,
                   background:isC1?'#39ff14':isC2?'#22d3ee':isUsed?'#0d0a18':bg,
                   color:isC1||isC2?'#000':isUsed?'#2d1b69':'#fff',
-                  fontSize:11,fontWeight:700,border:'none',
+                  fontSize:18,fontWeight:800,border:`1px solid rgba(255,255,255,${isUsed?0.05:0.2})`,
                   cursor:isUsed&&!isC1&&!isC2?'not-allowed':'pointer',
                   opacity:isUsed&&!isC1&&!isC2?0.2:1,
                   fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0,
+                  display:'flex',alignItems:'center',justifyContent:'center',
                 }}>{rank}</button>
               );
             })}
           </div>
         ))}
 
-        {/* Unknown row */}
-        <div style={{display:'flex',gap:3,marginTop:3,alignItems:'center'}}>
-          <div style={{width:22,textAlign:'center',fontSize:17,color:'#f97316',flexShrink:0,fontWeight:700}}>?</div>
-          {RANKS.map((_,i)=>(
-            <button key={i} onClick={handleUnknown} style={{
-              width:0,flexGrow:1,height:38,borderRadius:5,
-              background:'#431407',color:'#fb923c',
-              fontSize:13,fontWeight:700,border:'none',
-              cursor:'pointer',fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0,
-            }}>?</button>
-          ))}
         </div>
 
       </div>
@@ -237,7 +243,7 @@ function CommTablePicker({idx, hands, community, onSelect, onClose, openStreet=0
   const suitIds=['h','d','c','s'];
 
   return(
-    <div onClick={onClose} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,background:'rgba(5,0,20,0.97)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:12}}>
+    <div onClick={onClose} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,background:'rgba(5,0,20,0.97)',display:'flex',flexDirection:'column',alignItems:'stretch',justifyContent:'flex-start',padding:0}}>
       <div onClick={e=>e.stopPropagation()} style={{background:'#0f0a1a',border:'2px solid #22d3ee',borderRadius:16,padding:14,width:'100%',maxWidth:420,boxShadow:'0 0 40px rgba(34,211,238,0.3)'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
           <div style={{fontSize:15,fontWeight:800,color:'#fff',letterSpacing:2}}>{openStreet===1?'SELECT FLOP CARDS':openStreet===2?'SELECT TURN CARD':openStreet===3?'SELECT RIVER CARD':`Board Card ${idx+1}`}</div>
@@ -247,17 +253,18 @@ function CommTablePicker({idx, hands, community, onSelect, onClose, openStreet=0
           <CardChip card={current} size={52}/>
         </div>
         <div style={{textAlign:'center',fontSize:11,color:'#22d3ee',marginBottom:10,fontWeight:600,letterSpacing:1}}>TAP TO SELECT BOARD CARD</div>
-        <div style={{marginBottom:8}}>
-          <button onClick={()=>onSelect(idx,{rank:'',suit:'u'})} style={{width:'100%',padding:'8px',borderRadius:7,border:'2px dashed #f97316',background:'#431407',color:'#fb923c',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',marginBottom:6}}>? Unknown Card</button>
-        </div>
+        {/* Unknown — single button */}
+        <button onClick={()=>onSelect(idx,{rank:'',suit:'u'})} style={{width:'100%',padding:'13px',borderRadius:8,border:'2px solid #f97316',background:'#7c2d12',color:'#fb923c',fontSize:16,fontWeight:800,cursor:'pointer',fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',marginBottom:6,letterSpacing:1}}>
+          ? Unknown Card
+        </button>
         {suitIds.map((suit,si)=>(
           <div key={suit} style={{display:'flex',gap:3,marginBottom:4,alignItems:'center'}}>
-            <div style={{width:20,textAlign:'center',fontSize:16,color:suitColors[si],flexShrink:0}}>{suitSyms[si]}</div>
+            <div style={{width:28,textAlign:'center',fontSize:24,color:suitColors[si],flexShrink:0,alignSelf:'center'}}>{suitSyms[si]}</div>
             {RANKS.map(rank=>{
               const key=rank+suit;const isUsed=used.has(key);
               const isCurrent=current&&current.rank===rank&&current.suit===suit;
               return(
-                <button key={rank} onClick={()=>!isUsed&&onSelect(idx,{rank,suit})} style={{width:0,flexGrow:1,height:36,borderRadius:5,background:isCurrent?'#39ff14':isUsed?'#1a1030':suitColors[si],color:isCurrent?'#000':isUsed?'#3b0764':'#fff',fontSize:11,fontWeight:700,border:'none',cursor:isUsed?'not-allowed':'pointer',opacity:isUsed&&!isCurrent?0.25:1,fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0}}>
+                <button key={rank} onClick={()=>!isUsed&&onSelect(idx,{rank,suit})} style={{width:0,flexGrow:1,aspectRatio:'2/3',borderRadius:6,background:isCurrent?'#39ff14':isUsed?'#1a1030':suitColors[si],color:isCurrent?'#000':isUsed?'#3b0764':'#fff',fontSize:15,fontWeight:800,border:`1px solid rgba(255,255,255,${isUsed?0.05:0.15})`,cursor:isUsed?'not-allowed':'pointer',opacity:isUsed&&!isCurrent?0.25:1,fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
                   {rank}
                 </button>
               );
@@ -352,6 +359,8 @@ function HistoryScreen({history,onSelect,onBack,onClearAll}){
 // ── Main app ──────────────────────────────────────────────────
 export default function PokerLogger(){
   const [S,setS]=useState(mkState);
+  const [straddle,setStraddle]=useState(false);
+  const [stackDropOpen,setStackDropOpen]=useState(null);
   const [cardPicker,setCardPicker]=useState(null); // {type:'hole',pos} or {type:'comm',idx}
   const [history,setHistory]=useState(loadHistory);
   const [screen,setScreen]=useState('logger');
@@ -369,11 +378,14 @@ export default function PokerLogger(){
     fn(n);return n;
   }),[]);
 
-  function maybePostBlinds(n){
+  function maybePostBlinds(n, isStraddle){
     if(n.blindsPosted)return;
     const sbHasCard=n.hands['SB'][0]||n.hands['SB'][1];
     const bbHasCard=n.hands['BB'][0]||n.hands['BB'][1];
     if(!sbHasCard||!bbHasCard)return;
+    // If straddle, UTG must also have cards
+    const useStraddle = isStraddle !== undefined ? isStraddle : straddle;
+    if(useStraddle&&derivedActive(n.hands).includes('UTG')&&!(n.hands['UTG'][0]||n.hands['UTG'][1]))return;
     n.blindsPosted=true;
     const sb=Math.min(1,n.stacks['SB']||0);
     n.stacks['SB']=Math.max(0,(n.stacks['SB']||0)-sb);n.contributed['SB']=sb;n.pot+=sb;
@@ -381,6 +393,12 @@ export default function PokerLogger(){
     const bb=Math.min(2,n.stacks['BB']||0);
     n.stacks['BB']=Math.max(0,(n.stacks['BB']||0)-bb);n.contributed['BB']=bb;n.pot+=bb;
     n.streetRounds.preflop[0].push({pos:'BB',action:'blind',amount:bb});
+    // UTG straddle = 4bb, acts last preflop
+    if(useStraddle&&derivedActive(n.hands).includes('UTG')){
+      const str=Math.min(4,n.stacks['UTG']||0);
+      n.stacks['UTG']=Math.max(0,(n.stacks['UTG']||0)-str);n.contributed['UTG']=str;n.pot+=str;
+      n.streetRounds.preflop[0].push({pos:'UTG',action:'straddle',amount:str});
+    }
   }
 
   function calcEq(n,active){
@@ -493,17 +511,21 @@ export default function PokerLogger(){
   const active=derivedActive(S.hands);
   const sn=STREETS[S.street];
   const isPreflop=S.street===0;
+  // When straddle is on, UTG acts last preflop (after BB, like a third blind)
+  const preflopOrder = S.straddle&&active.includes('UTG')
+    ? ['MP','LJ','HJ','CO','BTN','SB','BB','UTG']
+    : PRE_ORD;
   const comN=sn==='flop'?3:sn==='turn'?4:sn==='river'?5:0;
   const rounds=S.streetRounds[sn];
 
   const roundsToShow=[];
   for(let ri=0;ri<rounds.length;ri++){
-    const pending=pendingInRound(rounds,ri,active,S.folded,isPreflop);
+    const pending=pendingInRound(rounds,ri,active,S.folded,isPreflop,preflopOrder);
     const hasActs=(rounds[ri]||[]).filter(a=>a.action!=='blind').length>0;
     if(ri===0){if(hasActs||pending.length>0)roundsToShow.push({ri,pending});}
     else{const pb=(rounds[ri-1]||[]).find(a=>a.action==='bet');if(pb&&(pending.length>0||hasActs))roundsToShow.push({ri,pending});}
   }
-  if(roundsToShow.length===0)roundsToShow.push({ri:0,pending:pendingInRound(rounds,0,active,S.folded,isPreflop)});
+  if(roundsToShow.length===0)roundsToShow.push({ri:0,pending:pendingInRound(rounds,0,active,S.folded,isPreflop,preflopOrder)});
 
   // Action complete check
   const allActed=active.filter(p=>!S.folded.has(p)).every(p=>rounds.flat().some(a=>a.pos===p&&a.action!=='blind'));
@@ -585,6 +607,15 @@ export default function PokerLogger(){
         </div>
       </div>
 
+      {/* Straddle toggle — show before cards are picked */}
+      {active.includes('UTG')&&S.street===0&&(
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,padding:'10px 14px',background:'#120d1e',borderRadius:8,border:`1px solid ${straddle?'#39ff14':'#3b0764'}`}}>
+          <span style={{fontSize:13,color:'#e9d5ff',fontWeight:600,flex:1}}>UTG Straddle <span style={{color:'#6b21a8',fontSize:11}}>(4bb — acts last)</span></span>
+          <div onClick={()=>{const ns=!straddle;setStraddle(ns);upd(n=>{n.straddle=ns;if(n.blindsPosted){n.blindsPosted=false;n.pot=0;n.contributed={};ALL_POS.forEach(p=>n.contributed[p]=0);n.streetRounds.preflop=[[]];const active2=derivedActive(n.hands);if(active2.includes('SB')&&active2.includes('BB'))maybePostBlinds(n);}});}} style={{width:48,height:26,borderRadius:13,background:straddle?'#39ff14':'#3b0764',cursor:'pointer',display:'flex',alignItems:'center',padding:'0 3px',transition:'background 0.2s',WebkitTapHighlightColor:'transparent',flexShrink:0}}>
+            <div style={{width:20,height:20,borderRadius:10,background:'#fff',transform:straddle?'translateX(22px)':'translateX(0)',transition:'transform 0.2s'}}/>
+          </div>
+        </div>
+      )}
       {/* Hole cards — single card per position showing pos name, tap to pick */}
       <div style={lbl}>Hole cards <span style={{color:'#6b21a8',fontSize:10,textTransform:'none',letterSpacing:0,fontWeight:400}}>— tap to select</span></div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8,marginBottom:14}}>
@@ -610,14 +641,22 @@ export default function PokerLogger(){
                 onClick={()=>setCardPicker({type:'hole',pos})}
                 style={{width:'100%',position:'relative',cursor:'pointer',height:160,WebkitTapHighlightColor:'transparent'}}
               >
-                {/* ── No cards yet: single empty card with pos name ── */}
+                {/* ── No cards yet: show two unknown cards ── */}
                 {!isActive&&(
-                  <div style={{
-                    position:'absolute',inset:0,borderRadius:10,
-                    border:'2px solid #39ff14',background:'#0a0a0f',
-                    display:'flex',alignItems:'center',justifyContent:'center',
-                  }}>
-                    <span style={{fontSize:16,fontWeight:900,color:'#39ff14',letterSpacing:1}}>{pos}</span>
+                  <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,padding:4}}>
+                    <div style={{fontSize:8,color:'rgba(255,255,255,0.35)',fontWeight:700,letterSpacing:1}}>{pos}</div>
+                    <div style={{display:'flex',gap:4,justifyContent:'center'}}>
+                      {[0,1].map(i=>(
+                        <div key={i} style={{width:44,height:62,borderRadius:6,background:'#1a1030',border:'2px solid #ffffff',display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'3px 4px',flexShrink:0}}>
+                          <div style={{fontSize:15,fontWeight:900,color:'#3b0764',lineHeight:1}}>?</div>
+                          <div style={{textAlign:'center',fontSize:16,color:'rgba(59,7,100,0.4)'}}>?</div>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
+                            <span style={{fontSize:9,fontWeight:900,color:'rgba(57,255,20,0.3)',letterSpacing:1}}>{pos}</span>
+                            <span style={{fontSize:13,fontWeight:900,color:'#3b0764'}}>?</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -661,8 +700,28 @@ export default function PokerLogger(){
                 )}
               </div>
 
-              {/* Stack input below card */}
-              <input type="number" min="0" step="0.5" value={rnd(S.stacks[pos]||0)} onChange={e=>updateStack(pos,e.target.value)} style={{...inp,width:'100%'}}/>
+              {/* Stack dropdown */}
+              <div style={{position:'relative',width:'100%'}}>
+                <button
+                  onClick={()=>setStackDropOpen(stackDropOpen===pos?null:pos)}
+                  style={{width:'100%',padding:'5px 8px',borderRadius:6,border:'1px solid #6b21a8',background:'#0a0814',color:'#ff10f0',fontSize:12,fontWeight:700,textAlign:'center',fontFamily:'sans-serif',cursor:'pointer',WebkitTapHighlightColor:'transparent'}}
+                >
+                  {rnd(S.stacks[pos]||0)}bb ▾
+                </button>
+                {stackDropOpen===pos&&(
+                  <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#120d1e',border:'1px solid #6b21a8',borderRadius:8,overflow:'hidden',marginTop:2,boxShadow:'0 4px 16px rgba(0,0,0,0.8)'}}>
+                    {[100,125,150,175,200,250,300,350,400,500].map(bb=>(
+                      <div key={bb} onClick={()=>{updateStack(pos,bb);setStackDropOpen(null);}}
+                        style={{padding:'8px 12px',color:S.stacks[pos]===bb?'#39ff14':'#e9d5ff',background:S.stacks[pos]===bb?'rgba(57,255,20,0.1)':'transparent',fontSize:13,fontWeight:600,cursor:'pointer',borderBottom:'1px solid #1a0a2e',WebkitTapHighlightColor:'transparent'}}
+                        onTouchStart={e=>e.currentTarget.style.background='#1a1030'} onTouchEnd={e=>e.currentTarget.style.background=S.stacks[pos]===bb?'rgba(57,255,20,0.1)':'transparent'}
+                        onMouseEnter={e=>e.currentTarget.style.background='#1a1030'} onMouseLeave={e=>e.currentTarget.style.background=S.stacks[pos]===bb?'rgba(57,255,20,0.1)':'transparent'}
+                      >
+                        {bb}bb
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {typeof eq==='number'&&isActive&&(
                 <div style={{width:'100%'}}>
                   <div style={{background:'#0a0814',borderRadius:6,height:14,overflow:'hidden'}}><div style={{width:`${eq}%`,height:'100%',background:'linear-gradient(90deg,#a3e635,#22d3ee)',borderRadius:6,transition:'width 0.4s'}}/></div>
@@ -694,7 +753,11 @@ export default function PokerLogger(){
         const agg=ri>0?[...(rounds[ri-1]||[])].reverse().find(a=>a.action==='bet'):null;
         const betOpts=isPreflop?preflopOpts():postflopOpts(S.pot);
         const actedSet=new Set(roundActs.map(a=>a.pos));
-        const posToShow=(isPreflop?PRE_ORD:POST_ORD).filter(p=>active.includes(p)&&(pending.includes(p)||actedSet.has(p)));
+        // Show ALL active non-folded players in acting order
+        const allOrderedPos=(isPreflop?preflopOrder:POST_ORD).filter(p=>active.includes(p)&&!S.folded.has(p));
+        // Only the FIRST pending player can act — others wait
+        const firstPending=pending[0]||null;
+        const posToShow=allOrderedPos;
         return(
           <div key={ri} style={{background:'#120d1e',borderRadius:10,padding:12,marginBottom:10,border:ri>0?'1px solid #22d3ee':'1px solid #3b0764',boxShadow:ri>0?'0 0 12px rgba(34,211,238,0.15)':'none'}}>
             <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:6,flexWrap:'wrap'}}>
@@ -702,9 +765,38 @@ export default function PokerLogger(){
               {ri>0&&<span style={{fontSize:11,color:'#22d3ee',fontWeight:500}}>↩ Responding to {agg?.pos}'s bet ({agg?.amount}bb){ri>1?` — round ${ri+1}`:''}</span>}
             </div>
             {posToShow.map((pos,i)=>{
-              const ae=roundActs.find(a=>a.pos===pos),act=ae?.action;
+              const ae=roundActs.find(a=>a.pos===pos&&!['blind','straddle'].includes(a.action)),act=ae?.action;
               const isPending=pending.includes(pos),isFolded=S.folded.has(pos);
               const dk=`${pos}_${ri}`,isBetOpen=S.betDropOpen===dk;
+
+              // Calculate price to call
+              // Preflop: blinds set the floor (2bb, or 4bb with straddle)
+              // Any raises on top add to that
+              const preflopFloor = isPreflop ? (S.straddle ? 4 : 2) : 0;
+              // Get all raise/bet amounts this street
+              const allStreetActs = rounds.flat();
+              const raiseAmounts = allStreetActs.filter(a=>a.action==='bet'&&a.amount>0).map(a=>a.amount);
+              const maxRaise = raiseAmounts.length ? Math.max(...raiseAmounts) : 0;
+              const maxBet = Math.max(preflopFloor, maxRaise);
+              // How much has THIS player already put in (blinds + any calls/raises)
+              const blindsIn = isPreflop ? (S.streetRounds.preflop[0].filter(a=>a.pos===pos&&a.amount>0).reduce((s,a)=>s+a.amount,0)) : 0;
+              const actsIn = allStreetActs.filter(a=>a.pos===pos&&a.amount>0).reduce((s,a)=>s+a.amount,0);
+              const myIn = blindsIn + actsIn;
+              const facingBet = maxBet > myIn;
+
+              // BB gets to check (live option) if pot wasn't raised beyond 2bb
+              const isBBOption = isPreflop && pos==='BB' && !S.straddle && maxBet<=2 && myIn>=2;
+              // UTG straddle gets live option if pot wasn't raised beyond 4bb
+              const isStraddleOption = isPreflop && pos==='UTG' && S.straddle && maxBet<=4 && myIn>=4;
+              const hasLiveOption = isBBOption || isStraddleOption;
+
+              // Valid actions
+              const canFold = facingBet && !hasLiveOption;
+              const canCheck = hasLiveOption || (!isPreflop && !facingBet);
+              const canCall = facingBet && !hasLiveOption;
+              const canRaise = true;
+              const canAllin = true;
+
               return(
                 <div key={pos} style={{marginTop:10,opacity:isFolded?0.35:1}}>
                   <div style={{fontSize:11,color:isPending?'#a3e635':'#6b21a8',marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
@@ -712,14 +804,25 @@ export default function PokerLogger(){
                     <span style={{color:'#ff10f0',fontSize:10}}>({rnd(S.stacks[pos]||0)}bb)</span>
                     {act&&<span style={{fontSize:10,color:act==='fold'?'#ef5350':act==='bet'?'#22d3ee':'#a3e635'}}>{act==='bet'?`raised ${ae.amount}bb`:act==='call'?`called ${ae.amount}bb`:act==='allin'?`all-in ${ae.amount}bb`:act}</span>}
                   </div>
-                  {!isFolded&&(isPending||act)&&(
+                  {/* Only show buttons for the current player to act */}
+                  {!isFolded&&(pos===firstPending||(isPending&&!firstPending))&&(
                     <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
-                      <button onClick={()=>setAct(pos,'fold',ri)} style={abtn(act==='fold',true)}>Fold</button>
-                      <button onClick={()=>setAct(pos,'check',ri)} style={abtn(act==='check')}>Check</button>
-                      <button onClick={()=>setAct(pos,'call',ri)} style={abtn(act==='call')}>Call</button>
-                      <button onClick={()=>setAct(pos,'bet',ri)} style={abtn(act==='bet'||isBetOpen,false,isBetOpen)}>{isPreflop?'Raise':'Bet/Raise'}{ae?.amount&&act==='bet'?` (${ae.amount}bb)`:''} ▾</button>
-                      <button onClick={()=>setAct(pos,'allin',ri)} style={abtn(act==='allin')}>All-in</button>
+                      {canFold&&<button onClick={()=>setAct(pos,'fold',ri)} style={abtn(act==='fold',true)}>Fold</button>}
+                      {canCheck&&<button onClick={()=>setAct(pos,'check',ri)} style={abtn(act==='check')}>Check</button>}
+                      {canCall&&<button onClick={()=>setAct(pos,'call',ri)} style={abtn(act==='call')}>Call {rnd(Math.min(maxBet-myIn,S.stacks[pos]||0))}bb</button>}
+                      {canRaise&&<button onClick={()=>setAct(pos,'bet',ri)} style={abtn(act==='bet'||isBetOpen,false,isBetOpen)}>{facingBet?'Raise':'Bet'}{ae?.amount&&act==='bet'?` (${ae.amount}bb)`:''} ▾</button>}
+                      {canAllin&&<button onClick={()=>setAct(pos,'allin',ri)} style={abtn(act==='allin')}>All-in</button>}
                     </div>
+                  )}
+                  {/* Already acted — show summary only */}
+                  {!isFolded&&act&&act!=='blind'&&act!=='straddle'&&pos!==firstPending&&(
+                    <div style={{fontSize:11,color:'#4c1d95',fontStyle:'italic'}}>
+                      {act==='bet'?`raised ${ae.amount}bb`:act==='call'?`called ${ae.amount}bb`:act==='allin'?`all-in ${ae.amount}bb`:act}
+                    </div>
+                  )}
+                  {/* Waiting to act */}
+                  {!isFolded&&!act&&pos!==firstPending&&(
+                    <div style={{fontSize:11,color:'#3b0764'}}>waiting...</div>
                   )}
                   {isBetOpen&&(
                     <div style={{background:'#0a0814',border:'1px solid #6b21a8',borderRadius:10,padding:8,marginTop:6,display:'flex',flexWrap:'wrap',gap:5}}>
