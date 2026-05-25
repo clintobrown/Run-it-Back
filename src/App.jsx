@@ -504,10 +504,30 @@ export default function PokerLogger(){
   function deleteHand(id){setHistory(prev=>prev.filter(h=>h.id!==id));setScreen('history');setSelectedHand(null);}
   function clearAll(){setHistory([]);}
 
-  function preflopOpts(){const o=[];for(let i=2;i<=100;i+=2)o.push({label:`${i}bb`,val:i});o.push({label:'ALL IN',val:'allin'});return o;}
-  function postflopOpts(pot){
-    if(!pot||pot<=0)return preflopOpts();
-    return[{label:'Min (1bb)',val:1},{label:`¼ pot (${rnd(pot*.25)}bb)`,val:rnd(pot*.25)},{label:`⅓ pot (${rnd(pot*.33)}bb)`,val:rnd(pot*.33)},{label:`½ pot (${rnd(pot*.5)}bb)`,val:rnd(pot*.5)},{label:`⅔ pot (${rnd(pot*.67)}bb)`,val:rnd(pot*.67)},{label:`Pot (${rnd(pot)}bb)`,val:rnd(pot)},{label:`1.5x (${rnd(pot*1.5)}bb)`,val:rnd(pot*1.5)},{label:`2x (${rnd(pot*2)}bb)`,val:rnd(pot*2)},{label:`2.5x (${rnd(pot*2.5)}bb)`,val:rnd(pot*2.5)},{label:`3x (${rnd(pot*3)}bb)`,val:rnd(pot*3)},{label:`4x (${rnd(pot*4)}bb)`,val:rnd(pot*4)},{label:`5x (${rnd(pot*5)}bb)`,val:rnd(pot*5)},{label:'ALL IN',val:'allin'}];
+  function preflopOpts(minRaise=2){
+    // Min raise preflop = last raise size, minimum 2bb (or double the last bet)
+    const o=[];
+    for(let i=Math.ceil(minRaise/2)*2;i<=100;i+=2)o.push({label:`${i}bb`,val:i});
+    o.push({label:'ALL IN',val:'allin'});
+    return o;
+  }
+  function postflopOpts(pot,minRaise=1){
+    if(!pot||pot<=0)return preflopOpts(minRaise);
+    const min=Math.max(1,minRaise);
+    const opts=[
+      {label:`Min (${rnd(min)}bb)`,val:rnd(min)},
+      {label:`¼ pot (${rnd(pot*.25)}bb)`,val:rnd(pot*.25)},
+      {label:`⅓ pot (${rnd(pot*.33)}bb)`,val:rnd(pot*.33)},
+      {label:`½ pot (${rnd(pot*.5)}bb)`,val:rnd(pot*.5)},
+      {label:`⅔ pot (${rnd(pot*.67)}bb)`,val:rnd(pot*.67)},
+      {label:`Pot (${rnd(pot)}bb)`,val:rnd(pot)},
+      {label:`1.5x (${rnd(pot*1.5)}bb)`,val:rnd(pot*1.5)},
+      {label:`2x (${rnd(pot*2)}bb)`,val:rnd(pot*2)},
+      {label:`3x (${rnd(pot*3)}bb)`,val:rnd(pot*3)},
+      {label:'ALL IN',val:'allin'},
+    ];
+    // Filter out sizes below minimum raise
+    return opts.filter(o=>o.val==='allin'||o.val>=min);
   }
 
   if(screen==='history')return <HistoryScreen history={history} onSelect={h=>{setSelectedHand(h);setScreen('detail');}} onBack={()=>setScreen('logger')} onClearAll={clearAll}/>;
@@ -761,7 +781,13 @@ export default function PokerLogger(){
       {active.length>=2&&roundsToShow.map(({ri,pending})=>{
         const roundActs=rounds[ri]||[];
         const agg=ri>0?[...(rounds[ri-1]||[])].reverse().find(a=>a.action==='bet'):null;
-        const betOpts=isPreflop?preflopOpts():postflopOpts(S.pot);
+        // Min raise = size of last bet/raise (or 2bb preflop by default)
+        const lastBet=rounds.flat().filter(a=>a.action==='bet'&&a.amount>0).map(a=>a.amount);
+        const lastBetAmt=lastBet.length?Math.max(...lastBet):0;
+        const preflopMin=isPreflop?(S.straddle?4:2):0;
+        // Min raise-to = last bet amount + (last bet - previous bet), simplified: 2x last bet or +lastBet
+        const minRaiseAmt=lastBetAmt>0?lastBetAmt*2:preflopMin*2||2;
+        const betOpts=isPreflop?preflopOpts(minRaiseAmt):postflopOpts(S.pot,lastBetAmt>0?lastBetAmt:1);
         const actedSet=new Set(roundActs.map(a=>a.pos));
         // Show ALL active non-folded players in acting order
         const allOrderedPos=(isPreflop?preflopOrder:POST_ORD).filter(p=>active.includes(p)&&!S.folded.has(p));
