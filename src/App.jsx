@@ -365,6 +365,7 @@ function HistoryScreen({history,onSelect,onBack,onClearAll}){
 // ── Main app ──────────────────────────────────────────────────
 export default function PokerLogger(){
   const [S,setS]=useState(mkState);
+  const [history2,setHistory2]=useState([]); // undo stack
   const [straddle,setStraddle]=useState(false);
   const [stackDropOpen,setStackDropOpen]=useState(null);
   const [cardPicker,setCardPicker]=useState(null); // {type:'hole',pos} or {type:'comm',idx}
@@ -374,7 +375,9 @@ export default function PokerLogger(){
 
   useEffect(()=>{ saveHistory(history); },[history]);
 
-  const upd=useCallback(fn=>setS(prev=>{
+  const upd=useCallback(fn=>{
+    setHistory2(h=>[...h.slice(-20),S]); // save last 20 states
+    setS(prev=>{
     const n={...prev,
       hands:Object.fromEntries(Object.entries(prev.hands).map(([k,v])=>[k,[...v]])),
       stacks:{...prev.stacks},contributed:{...prev.contributed},
@@ -382,7 +385,8 @@ export default function PokerLogger(){
       folded:new Set(prev.folded),equities:{...prev.equities},community:[...prev.community],
     };
     fn(n);return n;
-  }),[]);
+  });
+  },[S]);
 
   function maybePostBlinds(n, isStraddle){
     if(n.blindsPosted)return;
@@ -417,6 +421,14 @@ export default function PokerLogger(){
   }
 
   // Select a hole card for a position
+  function undo(){
+    if(history2.length===0)return;
+    const prev=history2[history2.length-1];
+    setHistory2(h=>h.slice(0,-1));
+    setS(prev);
+    setPicker(null);
+  }
+
   function selectHoleCard(pos, slot, card){
     upd(n=>{
       n.hands[pos][slot]=card;
@@ -672,21 +684,22 @@ export default function PokerLogger(){
                 style={{width:'100%',position:'relative',cursor:'pointer',height:160,WebkitTapHighlightColor:'transparent'}}
               >
                 {/* ── No cards yet: show two unknown cards ── */}
+                {/* ── No cards yet: holographic style cards ── */}
                 {!isActive&&(
-                  <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,padding:4}}>
-                    <div style={{fontSize:8,color:'rgba(255,255,255,0.35)',fontWeight:700,letterSpacing:1}}>{pos}</div>
-                    <div style={{display:'flex',gap:4,justifyContent:'center'}}>
-                      {[0,1].map(i=>(
-                        <div key={i} style={{width:44,height:62,borderRadius:6,background:'#1a1030',border:'2px solid #ffffff',display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'3px 4px',flexShrink:0}}>
-                          <div style={{fontSize:15,fontWeight:900,color:'#3b0764',lineHeight:1}}>?</div>
-                          <div style={{textAlign:'center',fontSize:16,color:'rgba(59,7,100,0.4)'}}>?</div>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
-                            <span style={{fontSize:9,fontWeight:900,color:'rgba(57,255,20,0.3)',letterSpacing:1}}>{pos}</span>
-                            <span style={{fontSize:13,fontWeight:900,color:'#3b0764'}}>?</span>
-                          </div>
+                  <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:4}}>
+                    {[0,1].map(i=>(
+                      <div key={i} style={{width:108,height:140,borderRadius:10,background:'#000',border:'3px solid #39ff14',boxShadow:'0 0 14px rgba(57,255,20,0.6)',display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'4px 8px 6px',flexShrink:0,position:'relative',overflow:'hidden'}}>
+                        {/* Simple gray ? */}
+                        <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+                          <span style={{fontSize:64,fontWeight:900,color:'#888'}}>?</span>
                         </div>
-                      ))}
-                    </div>
+                        {/* Position name at bottom */}
+                        <div style={{flex:1}}/>
+                        <div style={{textAlign:'center',fontSize:9,fontWeight:700,color:'#ffffff',letterSpacing:0.3,zIndex:1,lineHeight:1.2}}>
+                          {{'SB':'Small Blind','BB':'Big Blind','UTG':'Under the Gun','MP':'Mid Position','LJ':'Lojack','HJ':'Hijack','CO':'Cutoff','BTN':'Button'}[pos]||pos}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
