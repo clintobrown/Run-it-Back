@@ -184,7 +184,7 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
                 }}>
                   {c?<>
                     <span style={{fontSize:20,fontWeight:800,color:'#fff',lineHeight:1}}>{c.suit==='u'?'?':c.rank}</span>
-                    <span style={{fontSize:14,color:'#fff'}}>{si?.sym||'?'}</span>
+                    {c.suit!=='u'&&<span style={{fontSize:14,color:'#fff'}}>{si?.sym}</span>}
                   </>:<span style={{fontSize:11,color:'#4c1d95',fontWeight:600}}>C{s+1}</span>}
                 </div>
                 {c&&<button onClick={()=>clearCard(s)} style={{fontSize:9,color:'#ef4444',background:'none',border:'none',cursor:'pointer',padding:0}}>clear</button>}
@@ -198,6 +198,11 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
           {!current[0]?'SELECT CARD 1':!current[1]?'SELECT CARD 2':'TAP TO CHANGE'}
         </div>
 
+        {/* Unknown buttons */}
+        <div style={{display:'flex',gap:8,marginBottom:8}}>
+          <button onClick={()=>{onSelect(pos,slot,{rank:'',suit:'u'});}} style={{flex:1,padding:'14px 8px',borderRadius:12,border:'none',background:'#555',color:'#fff',fontSize:16,fontWeight:800,cursor:'pointer',fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',letterSpacing:1}}>1 UNKNOWN</button>
+          <button onClick={()=>{onSelect(pos,0,{rank:'',suit:'u'});onSelect(pos,1,{rank:'',suit:'u'});onClose();}} style={{flex:1,padding:'14px 8px',borderRadius:12,border:'none',background:'#555',color:'#fff',fontSize:16,fontWeight:800,cursor:'pointer',fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',letterSpacing:1}}>2 UNKNOWN</button>
+        </div>
         {/* Card table: scrollable */}
         <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',justifyContent:'space-evenly'}}>
         {SUIT_ROWS.map(({suit,sym,bg})=>{
@@ -229,6 +234,8 @@ function CardTablePicker({pos, hands, onSelect, onClose}){
             </div>
           );
         })}
+
+
 
         </div>
 
@@ -681,21 +688,21 @@ export default function PokerLogger(){
               {/* Card peek container */}
               <div
                 onClick={()=>setCardPicker({type:'hole',pos})}
-                style={{width:'100%',position:'relative',cursor:'pointer',height:160,WebkitTapHighlightColor:'transparent'}}
+                style={{width:'100%',position:'relative',cursor:'pointer',height:100,WebkitTapHighlightColor:'transparent'}}
               >
                 {/* ── No cards yet: show two unknown cards ── */}
                 {/* ── No cards yet: holographic style cards ── */}
                 {!isActive&&(
                   <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:4}}>
                     {[0,1].map(i=>(
-                      <div key={i} style={{width:108,height:140,borderRadius:10,background:'#000',border:'3px solid #39ff14',boxShadow:'0 0 14px rgba(57,255,20,0.6)',display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'4px 8px 6px',flexShrink:0,position:'relative',overflow:'hidden'}}>
+                      <div key={i} style={{width:60,height:84,borderRadius:8,background:'#000',border:'2px solid #39ff14',boxShadow:'0 0 10px rgba(57,255,20,0.5)',display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'3px 5px 4px',flexShrink:0,position:'relative',overflow:'hidden'}}>
                         {/* Simple gray ? */}
                         <div style={{position:'absolute',top:0,left:0,right:0,bottom:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
-                          <span style={{fontSize:64,fontWeight:900,color:'#888'}}>?</span>
+                          <span style={{fontSize:40,fontWeight:900,color:'#888'}}>?</span>
                         </div>
                         {/* Position name at bottom */}
                         <div style={{flex:1}}/>
-                        <div style={{textAlign:'center',fontSize:9,fontWeight:700,color:'#ffffff',letterSpacing:0.3,zIndex:1,lineHeight:1.2}}>
+                        <div style={{textAlign:'center',fontSize:8,fontWeight:700,color:'#ffffff',letterSpacing:0.2,zIndex:1,lineHeight:1.1}}>
                           {{'SB':'Small Blind','BB':'Big Blind','UTG':'Under the Gun','MP':'Mid Position','LJ':'Lojack','HJ':'Hijack','CO':'Cutoff','BTN':'Button'}[pos]||pos}
                         </div>
                       </div>
@@ -726,15 +733,15 @@ export default function PokerLogger(){
                       return(
                         <div key={idx} style={{width:88,height:124,borderRadius:10,background:'#000',border:'2px solid #ffffff',boxShadow:`0 0 10px ${bg}88`,display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'3px 4px',flexShrink:0,position:'relative',overflow:'hidden'}}>
                           {/* Top-left rank */}
-                          <div style={{fontSize:26,fontWeight:900,color:bg,lineHeight:1}}>{rnk}</div>
+                          <div style={{fontSize:16,fontWeight:900,color:bg,lineHeight:1}}>{rnk}</div>
                           {/* Big center suit in suit color */}
                           <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
-                            <span style={{fontSize:56,color:bg,lineHeight:1,filter:`drop-shadow(0 0 8px ${bg})`}}>{sym}</span>
+                            <span style={{fontSize:34,color:bg,lineHeight:1,filter:`drop-shadow(0 0 6px ${bg})`}}>{sym}</span>
                           </div>
                           {/* Bottom row: pos left, rank right */}
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',zIndex:1}}>
-                            <span style={{fontSize:11,fontWeight:900,color:'#39ff14',letterSpacing:1,lineHeight:1}}>{pos}</span>
-                            <span style={{fontSize:22,fontWeight:900,color:bg,lineHeight:1}}>{rnk}</span>
+                            <span style={{fontSize:7,fontWeight:900,color:'#39ff14',letterSpacing:0.5,lineHeight:1}}>{pos}</span>
+                            <span style={{fontSize:14,fontWeight:900,color:bg,lineHeight:1}}>{rnk}</span>
                           </div>
                         </div>
                       );
@@ -900,6 +907,7 @@ export default function PokerLogger(){
 
       {/* Bottom nav */}
       <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+        <button onClick={undo} disabled={history2.length===0} style={{padding:'8px 14px',borderRadius:10,border:'1px solid #a855f7',background:'#000',color:'#39ff14',cursor:'pointer',fontSize:13,minHeight:44,fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',fontWeight:600}}>↩ Undo</button>
         <button onClick={saveAndNew} style={{padding:'8px 18px',borderRadius:7,border:'1px solid #a855f7',background:'#000000',color:'#39ff14',cursor:'pointer',fontSize:13,fontWeight:800,minHeight:44,fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',boxShadow:'none'}}>💾 Save</button>
         <button onClick={resetHand} style={{padding:'8px 14px',borderRadius:10,border:'1px solid #a855f7',background:'#000000',color:'#39ff14',cursor:'pointer',fontSize:13,minHeight:44,fontFamily:'sans-serif',WebkitTapHighlightColor:'transparent',fontWeight:600}}>↺ Reset</button>
       </div>
